@@ -1,0 +1,32 @@
+name: Weekly Model Training
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"   # setiap hari Minggu jam 00:00 UTC
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install pandas numpy scikit-learn joblib
+
+      - name: Run training
+        run: python trainer.py
+
+      - name: Commit updated model
+        run: |
+          git config user.name "AutoTrainer"
+          git config user.email "bot@example.com"
+          git add model.pkl
+          git commit -m "Auto-update model"
+          git push
