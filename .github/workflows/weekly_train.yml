@@ -1,32 +1,46 @@
-name: Weekly Model Training
+name: Daily Model Training
 
 on:
   schedule:
-    - cron: "0 0 * * 0"   # setiap hari Minggu jam 00:00 UTC
+    - cron: "0 2 * * *"   # setiap hari jam 02:00 UTC
   workflow_dispatch:
 
 jobs:
-  train:
+  train_model:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repo
+      # --- Step 1: Checkout repository ---
+      - name: Checkout Repo
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      # --- Step 2: Setup Python ---
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
+      # --- Step 3: Install Dependencies ---
       - name: Install dependencies
-        run: pip install pandas numpy scikit-learn joblib
+        run: |
+          pip install -r requirements.txt || true
+          pip install pandas numpy scikit-learn xgboost joblib
 
-      - name: Run training
+      # --- Step 4: Train Model ---
+      - name: Train Model
         run: python trainer.py
 
+      # --- Step 5: Commit updated model ---
       - name: Commit updated model
         run: |
-          git config user.name "AutoTrainer"
-          git config user.email "bot@example.com"
-          git add model.pkl
-          git commit -m "Auto-update model"
-          git push
+          git config user.name "Auto Trainer Bot"
+          git config user.email "actions@github.com"
+
+          if [ -f "model/model.pkl" ]; then
+            git add model/model.pkl
+            git commit -m "Daily Model Update [auto]" || echo "No changes to commit"
+            git push || echo "Push failed"
+          else
+            echo "ERROR: model/model.pkl not found!"
+          fi
+
