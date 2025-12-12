@@ -1,9 +1,11 @@
-# main.py (REAL TRADING + AI + SCALER FIXED)
+# main.py (REAL TRADING + AI + SCALER FIXED + DYNAMIC LOT + GIT SYNC)
 """
 Real-trading version:
  - Loads model + scaler from model.pkl (dictionary)
  - Works with new trainer.py
  - Safe for demo account
+ - Uses Dynamic Lot Sizing based on RISK_PERCENT
+ - Automatically pulls latest code/model from Git on startup (Requires 'git' installed)
 """
 
 import os
@@ -12,6 +14,7 @@ import math
 import csv
 import traceback
 from datetime import datetime, timedelta, timezone
+import subprocess # <--- TAMBAHKAN INI UNTUK GIT SYNC
 
 import MetaTrader5 as mt5
 import numpy as np
@@ -139,6 +142,32 @@ def simple_ma_from_rates(rates, period=50):
         return None
     closes = np.array([r['close'] for r in rates])
     return float(np.mean(closes[-period:]))
+
+
+# ================================
+# GITHUB SYNCHRONIZATION (NEW)
+# ================================
+def sync_with_github():
+    """Fetches the latest code and model from the remote Git repository."""
+    try:
+        log("[SYNC] Starting git pull to fetch latest model/code...")
+        
+        # Eksekusi perintah 'git pull' untuk mengambil semua perubahan dari GitHub
+        result = subprocess.run(['git', 'pull'], capture_output=True, text=True, check=True, timeout=30)
+        
+        # Log output hanya jika ada yang berubah
+        if "Already up to date" not in result.stdout and "Already up-to-date" not in result.stdout:
+            log("[SYNC] Git pull successful. Changes fetched.")
+        else:
+            log("[SYNC] Git pull successful. Repository already up-to-date.")
+            
+    except subprocess.CalledProcessError as e:
+        log("[SYNC] ERROR: Git pull failed. Ensure Git is installed and repository is set up.")
+        log(f"Error output: {e.stderr.strip()}")
+    except FileNotFoundError:
+        log("[SYNC] ERROR: 'git' command not found. Ensure Git is in your system PATH.")
+    except Exception as e:
+        log(f"[SYNC] An unknown error occurred during sync: {e}")
 
 
 # ================================
@@ -397,7 +426,46 @@ def main_loop():
             sl = entry_price - atr * CONFIG["ATR_MULTIPLIER_SL"] if direction == "BUY" else entry_price + atr * CONFIG["ATR_MULTIPLIER_SL"]
             tp = entry_price + atr * CONFIG["ATR_MULTIPLIER_TP"] if direction == "BUY" else entry_price - atr * CONFIG["ATR_MULTIPLIER_TP"]
 
-            lot = CONFIG["FIXED_LOT"]
+            # --- DYNAMIC LOT CALCULATION START ---
+            acct = mt5.account_info()
+            # Gunakan FIXED_LOT sebagai fallback jika informasi akun gagal
+            lot = CONFIG["FIXED_LOT"] 
+
+            if acct is not None:
+                symbol_info = mt5.symbol_info(symbol)
+                
+                # 1. Hitung Jumlah Risiko (dalam USD)
+                risk_amount = acct.balance * CONFIG["RISK_PERCENT"] / 100.0
+                
+                # 2. Hitung Jarak Stop Loss (dalam harga/poin XAUUSD)
+                sl_distance = abs(sl - entry_price)
+                
+                # Lanjutkan hanya jika jarak SL valid (agar tidak terjadi pembagian nol)
+                if sl_distance >= CONFIG["MIN_ATR"]: 
+                    
+                    # 3. Hitung Risiko Dolar per 1.0 Lot
+                    # Untuk XAUUSD, 1.0 Lot memiliki nilai kontrak 100 unit.
+                    # Jadi, 1.0 perubahan harga = $100 per 1.0 Lot.
+                    risk_dollars_per_lot = sl_distance * 100.0
+                    
+                    # 4. Hitung Lot yang Diperlukan
+                    calculated_lot = risk_amount / risk_dollars_per_lot
+                    
+                    # 5. Terapkan Batas dan Langkah Lot
+                    min_lot = symbol_info.volume_min
+                    max_lot = symbol_info.volume_max
+                    lot_step = symbol_info.volume_step
+                    
+                    # Terapkan batasan (Min/Max Lot)
+                    lot = max(min_lot, min(max_lot, calculated_lot))
+                    
+                    # Sesuaikan lot ke langkah volume terdekat (misalnya 0.01, 0.02)
+                    lot = round(lot / lot_step) * lot_step
+
+            # --- DYNAMIC LOT CALCULATION END ---
+            
+            # Pastikan lot tidak nol (safety check terakhir)
+            lot = max(CONFIG["MIN_LOT"], lot)
 
             log(f"[MAIN] ENTRY dir={direction} lot={lot} price={entry_price} sl={sl} tp={tp}")
 
@@ -426,5 +494,11 @@ def main_loop():
 # ================================
 if __name__ == "__main__":
     log("[START] Python EA starting. REAL_TRADING =", CONFIG["REAL_TRADING"])
+    
+    # SINKRONISASI OTOMATIS DENGAN GITHUB
+    sync_with_github()
+    
+    # MUAT MODEL BARU (Memuat model dan kode yang baru ditarik)
     load_model_and_scaler()
+    
     main_loop()
