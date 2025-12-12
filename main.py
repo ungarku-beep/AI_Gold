@@ -65,8 +65,8 @@ CONFIG = {
     "MIN_BALANCE": 10.0,
 
     # AI thresholds
-    "BUY_PROB_THRESHOLD": 25.0,
-    "SELL_PROB_THRESHOLD": 25.0,
+    "BUY_PROB_THRESHOLD": 62.0,
+    "SELL_PROB_THRESHOLD": 62.0,
 
     "MODEL_PATH": os.path.join("model", "model.pkl"),
 }
